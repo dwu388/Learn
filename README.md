@@ -75,6 +75,8 @@ The first setup can take several minutes. Later launches skip installation unles
 6. Leave **CPU** selected for the simplest Whisper setup. Select NVIDIA GPU only after CUDA 12 and cuDNN 9 are correctly configured.
 7. Select **Build Markdown library** and keep the browser and batch window open until the run finishes.
 
+A processing indicator remains visible while a run is active. The build button is temporarily disabled to prevent duplicate runs.
+
 The first Whisper fallback downloads the selected speech-to-text model and therefore takes longer. Captioned videos do not need this model.
 
 ## Stop and restart

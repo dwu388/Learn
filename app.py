@@ -25,6 +25,29 @@ app_ui = ui.page_fluid(
             .status-box { white-space: pre-wrap; background: #101820; color: #d7e2ea;
                           border-radius: .5rem; padding: 1rem; min-height: 8rem; }
             .result-card { border-left: 4px solid #198754; }
+            .run-progress { display: none; align-items: center; gap: .75rem; margin-top: 1rem; }
+            .run-progress.is-active { display: flex; }
+            """
+        ),
+        ui.tags.script(
+            """
+            document.addEventListener("DOMContentLoaded", () => {
+                const button = document.getElementById("process");
+                const indicator = document.getElementById("run-progress");
+                if (!button || !indicator) return;
+
+                button.addEventListener("click", () => {
+                    indicator.classList.add("is-active");
+                    button.setAttribute("aria-busy", "true");
+                    window.setTimeout(() => { button.disabled = true; }, 0);
+                });
+
+                $(document).on("shiny:idle", () => {
+                    indicator.classList.remove("is-active");
+                    button.disabled = false;
+                    button.removeAttribute("aria-busy");
+                });
+            });
             """
         ),
     ),
@@ -119,6 +142,20 @@ app_ui = ui.page_fluid(
                 ),
                 ui.input_action_button(
                     "process", "Build Markdown library", class_="btn-primary w-100"
+                ),
+                ui.div(
+                    ui.div(
+                        class_="spinner-border spinner-border-sm text-primary",
+                        role="status",
+                        **{"aria-hidden": "true"},
+                    ),
+                    ui.span(
+                        "Processing is in progress. Keep this window open until the run finishes."
+                    ),
+                    id="run-progress",
+                    class_="run-progress alert alert-info",
+                    role="status",
+                    **{"aria-live": "polite"},
                 ),
                 class_="control-card",
             ),
