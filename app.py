@@ -88,9 +88,6 @@ app_ui = ui.page_fluid(
                 ),
                 ui.input_text("languages", "Caption language priority", value="en,en-US,en-GB"),
                 ui.input_checkbox(
-                    "copy_originals", "Copy uploaded originals into the output", True
-                ),
-                ui.input_checkbox(
                     "whisper_fallback",
                     "Use local Whisper when YouTube captions are unavailable",
                     True,
@@ -170,7 +167,6 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
                 overlap_words=overlap_words,
                 timestamp_interval=int(input.timestamp_interval()),
                 languages=languages,
-                copy_originals=bool(input.copy_originals()),
                 whisper_fallback=bool(input.whisper_fallback()),
                 whisper_model=str(input.whisper_model()),
                 whisper_device=str(input.whisper_device()),

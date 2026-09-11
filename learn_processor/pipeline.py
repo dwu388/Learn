@@ -12,10 +12,8 @@ from .books import extract_book
 from .common import (
     chunk_sections,
     front_matter,
-    safe_name,
     sha256_file,
     unique_destination,
-    unique_file_destination,
     write_chunks,
 )
 from .youtube import extract_video, parse_youtube_links, transcript_chunks
@@ -28,7 +26,6 @@ class ProcessingOptions:
     overlap_words: int = 120
     timestamp_interval: int = 60
     languages: tuple[str, ...] = ("en", "en-US", "en-GB")
-    copy_originals: bool = True
     whisper_fallback: bool = True
     whisper_model: str = "small"
     whisper_device: str = "cpu"
@@ -90,13 +87,6 @@ def _process_book(path: Path, original_name: str, options: ProcessingOptions) ->
             "chunk_overlap_words": options.overlap_words,
         }
         chunk_count, total_words, records = write_chunks(staging, chunks, metadata)
-        if options.copy_originals:
-            original_dir = staging / "original"
-            original_dir.mkdir()
-            archived_name = (
-                f"{safe_name(Path(original_name).stem, 'book')}{Path(original_name).suffix.lower()}"
-            )
-            shutil.copy2(path, original_dir / archived_name)
         _write_index(staging, metadata, records)
         return ProcessingResult(
             book.title, True, _finalize(staging, destination), chunk_count, total_words
@@ -213,13 +203,6 @@ def process_files(
             elif suffix == ".txt":
                 text = path.read_text(encoding="utf-8-sig")
                 links = parse_youtube_links(text)
-                if options.copy_originals:
-                    input_dir = options.output_dir / "_inputs"
-                    input_dir.mkdir(exist_ok=True)
-                    destination = unique_file_destination(
-                        input_dir, Path(original_name).stem, ".txt"
-                    )
-                    shutil.copy2(path, destination)
                 for url in links:
                     try:
                         results.append(_process_video(url, options))

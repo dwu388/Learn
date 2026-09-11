@@ -15,7 +15,8 @@ Each book or video receives its own versioned folder containing:
 - `index.md`, with source metadata and links to every chunk
 - `manifest.json`, with machine-readable provenance and chunk records
 - `chunks/chunk-###.md`, with bounded word counts and optional overlap
-- `original/`, for an archived copy of an uploaded book when enabled
+
+Uploaded source files are not copied into the output library.
 
 PDF chunks retain page comments and page ranges. EPUBs retain their reading order and headings. YouTube transcript chunks retain clickable timestamps that open the original video at the matching spoken passage. The root `catalog.md` indexes successful outputs.
 

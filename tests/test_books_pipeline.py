@@ -4,7 +4,7 @@ import pymupdf
 from ebooklib import epub
 
 from learn_processor.books import extract_epub, extract_pdf
-from learn_processor.pipeline import ProcessingOptions, process_files
+from learn_processor.pipeline import ProcessingOptions, ProcessingResult, process_files
 
 
 def make_searchable_pdf(path):
@@ -54,7 +54,7 @@ def test_epub_extraction_uses_spine_order(tmp_path):
     assert "Readable EPUB content" in extracted.sections[0].body
 
 
-def test_pipeline_writes_index_manifest_chunks_and_original(tmp_path):
+def test_pipeline_writes_processed_files_without_archiving_original(tmp_path):
     source = tmp_path / "source.pdf"
     output = tmp_path / "output"
     make_searchable_pdf(source)
@@ -70,8 +70,23 @@ def test_pipeline_writes_index_manifest_chunks_and_original(tmp_path):
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["source_sha256"]
     assert len(manifest["chunks"]) == results[0].chunk_count
-    assert (destination / "original" / "original-book.pdf").exists()
+    assert not (destination / "original").exists()
     assert "Test PDF" in (output / "catalog.md").read_text(encoding="utf-8")
+
+
+def test_pipeline_does_not_archive_youtube_link_list(tmp_path, monkeypatch):
+    source = tmp_path / "links.txt"
+    output = tmp_path / "output"
+    source.write_text("https://youtu.be/dQw4w9WgXcQ\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "learn_processor.pipeline._process_video",
+        lambda url, options: ProcessingResult(label=url, success=True),
+    )
+
+    results = process_files([(source, "links.txt")], ProcessingOptions(output_dir=output))
+
+    assert results[0].success
+    assert not (output / "_inputs").exists()
 
 
 def test_catalog_retains_outputs_from_prior_runs(tmp_path):
