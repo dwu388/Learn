@@ -40,14 +40,22 @@ def extract_pdf(path: Path) -> BookExtraction:
         non_space_characters = sum(len(re.sub(r"\s", "", page)) for page in pages)
         if non_space_characters < max(100, len(document) * 20):
             raise ValueError(
-                "The PDF does not contain enough searchable text. OCR-only PDFs are intentionally unsupported."
+                "The PDF does not contain enough searchable text. "
+                "OCR-only PDFs are intentionally unsupported."
             )
 
-        toc = [entry for entry in document.get_toc(simple=True) if len(entry) >= 3]
+        toc = [
+            entry
+            for entry in document.get_toc(simple=True)
+            if len(entry) >= 3 and isinstance(entry[2], int) and entry[2] > 0
+        ]
         sections: list[MarkdownSection] = []
         if toc:
-            top_level = min(int(entry[0]) for entry in toc)
-            entries = [entry for entry in toc if int(entry[0]) == top_level]
+            # Retain chapter structure even when every chapter is nested under one title.
+            by_page: dict[int, list[object]] = {}
+            for entry in toc:
+                by_page[int(entry[2])] = entry
+            entries = [by_page[page] for page in sorted(by_page)]
             first_toc_page = max(0, int(entries[0][2]) - 1)
             if first_toc_page > 0:
                 front_pages = [
@@ -65,7 +73,11 @@ def extract_pdf(path: Path) -> BookExtraction:
                     )
             for index, entry in enumerate(entries):
                 start_page = max(0, int(entry[2]) - 1)
-                end_page = max(start_page + 1, int(entries[index + 1][2]) - 1) if index + 1 < len(entries) else len(pages)
+                end_page = (
+                    max(start_page + 1, int(entries[index + 1][2]) - 1)
+                    if index + 1 < len(entries)
+                    else len(pages)
+                )
                 body_parts = []
                 for page_index in range(start_page, min(end_page, len(pages))):
                     if pages[page_index]:

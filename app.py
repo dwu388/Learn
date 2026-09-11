@@ -5,7 +5,7 @@ from pathlib import Path
 from shiny import App, Inputs, Outputs, Session, reactive, render, ui
 
 from learn_processor.pipeline import ProcessingOptions, process_files
-
+from learn_processor.youtube import javascript_runtime_status
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -51,12 +51,17 @@ app_ui = ui.page_fluid(
                     "Blank lines and lines beginning with # are ignored.",
                     class_="muted",
                 ),
+                ui.p(javascript_runtime_status(), class_="small muted"),
                 ui.tags.hr(),
                 ui.h6("Supported processing"),
                 ui.tags.ul(
                     ui.tags.li("EPUB: reading order and headings are retained."),
-                    ui.tags.li("PDF: searchable text, table of contents, and page references are retained."),
-                    ui.tags.li("YouTube: captions or local speech-to-text with links back to exact times."),
+                    ui.tags.li(
+                        "PDF: searchable text, table of contents, and page references are retained."
+                    ),
+                    ui.tags.li(
+                        "YouTube: captions or local speech-to-text with links back to exact times."
+                    ),
                 ),
                 class_="control-card",
             ),
@@ -68,7 +73,9 @@ app_ui = ui.page_fluid(
                     value=str(APP_DIR / "processed_library"),
                 ),
                 ui.layout_columns(
-                    ui.input_numeric("chunk_words", "Target words per chunk", 1200, min=250, max=5000),
+                    ui.input_numeric(
+                        "chunk_words", "Target words per chunk", 1200, min=250, max=5000
+                    ),
                     ui.input_numeric("overlap_words", "Overlap words", 120, min=0, max=1000),
                     col_widths=(6, 6),
                 ),
@@ -80,20 +87,42 @@ app_ui = ui.page_fluid(
                     max=600,
                 ),
                 ui.input_text("languages", "Caption language priority", value="en,en-US,en-GB"),
-                ui.input_checkbox("copy_originals", "Copy uploaded originals into the output", True),
+                ui.input_checkbox(
+                    "copy_originals", "Copy uploaded originals into the output", True
+                ),
                 ui.input_checkbox(
                     "whisper_fallback",
                     "Use local Whisper when YouTube captions are unavailable",
                     True,
                 ),
-                ui.input_select(
-                    "whisper_model",
-                    "Local Whisper model",
-                    {"tiny": "Tiny (fastest)", "base": "Base", "small": "Small (recommended)", "medium": "Medium (most accurate)"},
-                    selected="small",
+                ui.layout_columns(
+                    ui.input_select(
+                        "whisper_model",
+                        "Local Whisper model",
+                        {
+                            "tiny": "Tiny (fastest)",
+                            "base": "Base",
+                            "small": "Small (recommended)",
+                            "medium": "Medium (most accurate)",
+                        },
+                        selected="small",
+                    ),
+                    ui.input_select(
+                        "whisper_device",
+                        "Transcription device",
+                        {"cpu": "CPU (easiest setup)", "cuda": "NVIDIA GPU (CUDA configured)"},
+                        selected="cpu",
+                    ),
+                    col_widths=(6, 6),
                 ),
-                ui.p("Existing output is never overwritten. A numbered version folder is created instead.", class_="muted"),
-                ui.input_action_button("process", "Build Markdown library", class_="btn-primary w-100"),
+                ui.p(
+                    "Existing output is never overwritten. "
+                    "A numbered version folder is created instead.",
+                    class_="muted",
+                ),
+                ui.input_action_button(
+                    "process", "Build Markdown library", class_="btn-primary w-100"
+                ),
                 class_="control-card",
             ),
             col_widths=(6, 6),
@@ -132,8 +161,11 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
             if not languages:
                 raise ValueError("Enter at least one caption language code.")
 
+            raw_output_dir = str(input.output_dir()).strip().strip('"')
+            if not raw_output_dir:
+                raise ValueError("Choose an output folder.")
             options = ProcessingOptions(
-                output_dir=Path(input.output_dir()).expanduser(),
+                output_dir=Path(raw_output_dir).expanduser(),
                 chunk_words=chunk_words,
                 overlap_words=overlap_words,
                 timestamp_interval=int(input.timestamp_interval()),
@@ -141,10 +173,13 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
                 copy_originals=bool(input.copy_originals()),
                 whisper_fallback=bool(input.whisper_fallback()),
                 whisper_model=str(input.whisper_model()),
+                whisper_device=str(input.whisper_device()),
             )
             paths = [(Path(item["datapath"]), item["name"]) for item in uploads]
 
-            status_value.set("Processing sources. Large books or local transcription can take several minutes.")
+            status_value.set(
+                "Processing sources. Large books or local transcription can take several minutes."
+            )
             with ui.Progress(min=0, max=len(paths)) as progress:
                 progress.set(message="Building Markdown library", detail="Starting")
 
@@ -160,7 +195,9 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
                 f"Finished with {len(results) - len(failures)} successful source(s) "
                 f"and {len(failures)} failure(s).\nOutput: {options.output_dir.resolve()}"
             )
-        except Exception as exc:  # UI boundary: show a concise error instead of crashing the session.
+        except (
+            Exception
+        ) as exc:  # UI boundary: show a concise error instead of crashing the session.
             status_value.set(f"Processing stopped: {exc}")
             result_value.set([])
 

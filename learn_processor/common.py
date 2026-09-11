@@ -8,6 +8,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+WINDOWS_RESERVED_NAMES = {
+    "CON",
+    "PRN",
+    "AUX",
+    "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
+
 
 @dataclass(frozen=True)
 class MarkdownSection:
@@ -28,7 +37,10 @@ class MarkdownChunk:
 def safe_name(value: str, fallback: str = "source") -> str:
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", normalized).strip("-._").lower()
-    return cleaned[:100] or fallback
+    cleaned = cleaned[:100] or fallback
+    if cleaned.upper() in WINDOWS_RESERVED_NAMES:
+        cleaned = f"source-{cleaned}"
+    return cleaned
 
 
 def word_count(text: str) -> int:
@@ -59,6 +71,35 @@ def split_paragraphs(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
 
 
+def _bounded_paragraphs(paragraph: str, target_words: int) -> list[str]:
+    """Split unusually large paragraphs so one block cannot defeat chunk sizing."""
+    if word_count(paragraph) <= target_words:
+        return [paragraph]
+    sentences = [item.strip() for item in re.split(r"(?<=[.!?])\s+", paragraph) if item.strip()]
+    bounded: list[str] = []
+    current: list[str] = []
+    current_words = 0
+    for sentence in sentences:
+        sentence_words = sentence.split()
+        if len(sentence_words) > target_words:
+            if current:
+                bounded.append(" ".join(current))
+                current, current_words = [], 0
+            bounded.extend(
+                " ".join(sentence_words[index : index + target_words])
+                for index in range(0, len(sentence_words), target_words)
+            )
+        elif current and current_words + len(sentence_words) > target_words:
+            bounded.append(" ".join(current))
+            current, current_words = [sentence], len(sentence_words)
+        else:
+            current.append(sentence)
+            current_words += len(sentence_words)
+    if current:
+        bounded.append(" ".join(current))
+    return bounded
+
+
 def chunk_sections(
     sections: Sequence[MarkdownSection], target_words: int, overlap_words: int
 ) -> list[MarkdownChunk]:
@@ -71,8 +112,9 @@ def chunk_sections(
         paragraphs = split_paragraphs(section.body)
         if not paragraphs:
             continue
-        for index, paragraph in enumerate(paragraphs):
-            units.append((section.title if index == 0 else "", section.source_ref, paragraph))
+        for paragraph in paragraphs:
+            for bounded in _bounded_paragraphs(paragraph, target_words):
+                units.append((section.title, section.source_ref, bounded))
 
     chunks: list[MarkdownChunk] = []
     start = 0
@@ -88,7 +130,7 @@ def chunk_sections(
         current_title = ""
         refs: list[str] = []
         for title, source_ref, paragraph in selected:
-            if title:
+            if title and title != current_title:
                 current_title = title
                 body_parts.append(f"## {title}")
             if source_ref and source_ref not in refs:
@@ -96,10 +138,15 @@ def chunk_sections(
             body_parts.append(paragraph)
 
         chunk_number = len(chunks) + 1
+        first_title = selected[0][0]
+        last_title = selected[-1][0]
+        chunk_title = (
+            first_title if first_title == last_title else f"{first_title} through {last_title}"
+        )
         chunks.append(
             MarkdownChunk(
                 number=chunk_number,
-                title=current_title or f"Chunk {chunk_number}",
+                title=chunk_title or f"Chunk {chunk_number}",
                 body="\n\n".join(body_parts).strip() + "\n",
                 word_count=sum(word_count(item[2]) for item in selected),
                 source_refs=tuple(refs),

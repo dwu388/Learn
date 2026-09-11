@@ -31,6 +31,7 @@ class ProcessingOptions:
     copy_originals: bool = True
     whisper_fallback: bool = True
     whisper_model: str = "small"
+    whisper_device: str = "cpu"
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,9 @@ class ProcessingResult:
 ProgressCallback = Callable[[int, int, str], None]
 
 
-def _write_index(directory: Path, metadata: dict[str, object], records: list[dict[str, object]]) -> None:
+def _write_index(
+    directory: Path, metadata: dict[str, object], records: list[dict[str, object]]
+) -> None:
     lines = [front_matter(metadata), f"# {metadata['title']}", ""]
     if metadata.get("source_url"):
         lines.extend([f"Original: {metadata['source_url']}", ""])
@@ -90,18 +93,30 @@ def _process_book(path: Path, original_name: str, options: ProcessingOptions) ->
         if options.copy_originals:
             original_dir = staging / "original"
             original_dir.mkdir()
-            archived_name = f"{safe_name(Path(original_name).stem, 'book')}{Path(original_name).suffix.lower()}"
+            archived_name = (
+                f"{safe_name(Path(original_name).stem, 'book')}{Path(original_name).suffix.lower()}"
+            )
             shutil.copy2(path, original_dir / archived_name)
         _write_index(staging, metadata, records)
-        return ProcessingResult(book.title, True, _finalize(staging, destination), chunk_count, total_words)
+        return ProcessingResult(
+            book.title, True, _finalize(staging, destination), chunk_count, total_words
+        )
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
 
 def _process_video(url: str, options: ProcessingOptions) -> ProcessingResult:
-    video = extract_video(url, options.languages, options.whisper_fallback, options.whisper_model)
-    chunks = transcript_chunks(video, options.chunk_words, options.overlap_words, options.timestamp_interval)
+    video = extract_video(
+        url,
+        options.languages,
+        options.whisper_fallback,
+        options.whisper_model,
+        options.whisper_device,
+    )
+    chunks = transcript_chunks(
+        video, options.chunk_words, options.overlap_words, options.timestamp_interval
+    )
     destination = unique_destination(options.output_dir, f"{video.title}-{video.video_id}")
     staging = Path(tempfile.mkdtemp(prefix=".learn-video-", dir=options.output_dir))
     try:
@@ -114,6 +129,7 @@ def _process_video(url: str, options: ProcessingOptions) -> ProcessingResult:
             "channel": video.channel,
             "duration_seconds": video.duration,
             "transcript_source": video.transcript_source,
+            "javascript_runtime": video.javascript_runtime,
             "processed_at": datetime.now(timezone.utc).isoformat(),
             "chunk_target_words": options.chunk_words,
             "chunk_overlap_words": options.overlap_words,
@@ -121,19 +137,52 @@ def _process_video(url: str, options: ProcessingOptions) -> ProcessingResult:
         }
         chunk_count, total_words, records = write_chunks(staging, chunks, metadata)
         _write_index(staging, metadata, records)
-        return ProcessingResult(video.title, True, _finalize(staging, destination), chunk_count, total_words)
+        return ProcessingResult(
+            video.title, True, _finalize(staging, destination), chunk_count, total_words
+        )
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
 
-def _write_catalog(output_dir: Path, results: list[ProcessingResult]) -> None:
-    successful = [item for item in results if item.success and item.output_path]
-    lines = ["# Learn Markdown Library", "", f"Updated: {datetime.now(timezone.utc).isoformat()}", ""]
-    for item in successful:
-        relative = item.output_path.relative_to(output_dir).as_posix()
-        lines.append(f"- [{item.label}]({relative}/index.md) ({item.chunk_count} chunks, {item.word_count} words)")
-    (output_dir / "catalog.md").write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+def _write_catalog(output_dir: Path) -> None:
+    entries: list[dict[str, object]] = []
+    for directory in output_dir.iterdir():
+        if not directory.is_dir() or directory.name.startswith(".") or directory.name == "_inputs":
+            continue
+        manifest_path = directory / "manifest.json"
+        index_path = directory / "index.md"
+        if not manifest_path.is_file() or not index_path.is_file():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            records = manifest.get("chunks", [])
+            entries.append(
+                {
+                    "title": str(manifest.get("title") or directory.name).replace("\n", " "),
+                    "directory": directory.name,
+                    "chunk_count": len(records),
+                    "word_count": sum(int(record.get("word_count", 0)) for record in records),
+                }
+            )
+        except (OSError, ValueError, TypeError):
+            continue
+    entries.sort(key=lambda item: (str(item["title"]).casefold(), str(item["directory"])))
+    lines = [
+        "# Learn Markdown Library",
+        "",
+        f"Updated: {datetime.now(timezone.utc).isoformat()}",
+        "",
+    ]
+    for item in entries:
+        lines.append(
+            f"- [{item['title']}]({item['directory']}/index.md) "
+            f"({item['chunk_count']} chunks, {item['word_count']} words)"
+        )
+    catalog = output_dir / "catalog.md"
+    temporary = output_dir / ".catalog.md.tmp"
+    temporary.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    temporary.replace(catalog)
 
 
 def process_files(
@@ -141,10 +190,18 @@ def process_files(
     options: ProcessingOptions,
     progress: ProgressCallback | None = None,
 ) -> list[ProcessingResult]:
-    if options.overlap_words >= options.chunk_words:
-        raise ValueError("Overlap must be smaller than the target chunk size.")
+    if (
+        options.chunk_words <= 0
+        or options.overlap_words < 0
+        or options.overlap_words >= options.chunk_words
+    ):
+        raise ValueError("Chunk sizes must satisfy 0 <= overlap_words < chunk_words.")
     if options.timestamp_interval <= 0:
         raise ValueError("Timestamp interval must be positive.")
+    if options.whisper_model not in {"tiny", "base", "small", "medium"}:
+        raise ValueError("Unsupported Whisper model.")
+    if options.whisper_device not in {"cpu", "cuda"}:
+        raise ValueError("Whisper device must be 'cpu' or 'cuda'.")
     options.output_dir.mkdir(parents=True, exist_ok=True)
     upload_list = list(uploads)
     results: list[ProcessingResult] = []
@@ -159,7 +216,9 @@ def process_files(
                 if options.copy_originals:
                     input_dir = options.output_dir / "_inputs"
                     input_dir.mkdir(exist_ok=True)
-                    destination = unique_file_destination(input_dir, Path(original_name).stem, ".txt")
+                    destination = unique_file_destination(
+                        input_dir, Path(original_name).stem, ".txt"
+                    )
                     shutil.copy2(path, destination)
                 for url in links:
                     try:
@@ -172,5 +231,5 @@ def process_files(
             results.append(ProcessingResult(original_name, False, error=str(exc)))
         if progress:
             progress(number, len(upload_list), f"Finished {original_name}")
-    _write_catalog(options.output_dir, results)
+    _write_catalog(options.output_dir)
     return results

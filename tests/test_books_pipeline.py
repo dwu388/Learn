@@ -72,3 +72,24 @@ def test_pipeline_writes_index_manifest_chunks_and_original(tmp_path):
     assert len(manifest["chunks"]) == results[0].chunk_count
     assert (destination / "original" / "original-book.pdf").exists()
     assert "Test PDF" in (output / "catalog.md").read_text(encoding="utf-8")
+
+
+def test_catalog_retains_outputs_from_prior_runs(tmp_path):
+    first_source = tmp_path / "first.pdf"
+    second_source = tmp_path / "second.pdf"
+    output = tmp_path / "output"
+    make_searchable_pdf(first_source)
+    make_searchable_pdf(second_source)
+
+    process_files(
+        [(first_source, "First.pdf")],
+        ProcessingOptions(output_dir=output, chunk_words=250, overlap_words=0),
+    )
+    process_files(
+        [(second_source, "Second.pdf")],
+        ProcessingOptions(output_dir=output, chunk_words=250, overlap_words=0),
+    )
+
+    catalog = (output / "catalog.md").read_text(encoding="utf-8")
+    assert "test-pdf/index.md" in catalog
+    assert "test-pdf-v2/index.md" in catalog

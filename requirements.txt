@@ -4,6 +4,5 @@ EbookLib>=0.18,<1
 beautifulsoup4>=4.12,<5
 markdownify>=0.13,<2
 youtube-transcript-api>=1.2,<2
-yt-dlp>=2025.1.0
+yt-dlp[default]>=2025.11.12
 faster-whisper>=1.1,<2
-pytest>=8,<10
