@@ -89,6 +89,29 @@ def test_pipeline_does_not_archive_youtube_link_list(tmp_path, monkeypatch):
     assert not (output / "_inputs").exists()
 
 
+def test_pipeline_expands_channel_before_processing_videos(tmp_path, monkeypatch):
+    source = tmp_path / "channel.txt"
+    output = tmp_path / "output"
+    source.write_text("https://youtube.com/@example/videos\n", encoding="utf-8")
+    videos = [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=9bZkp7q19f0",
+    ]
+    monkeypatch.setattr("learn_processor.pipeline.expand_youtube_sources", lambda sources: videos)
+    processed = []
+
+    def process_video(url, options):
+        processed.append(url)
+        return ProcessingResult(label=url, success=True)
+
+    monkeypatch.setattr("learn_processor.pipeline._process_video", process_video)
+
+    results = process_files([(source, "channel.txt")], ProcessingOptions(output_dir=output))
+
+    assert len(results) == 2
+    assert processed == videos
+
+
 def test_catalog_retains_outputs_from_prior_runs(tmp_path):
     first_source = tmp_path / "first.pdf"
     second_source = tmp_path / "second.pdf"

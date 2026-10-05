@@ -6,7 +6,7 @@ A local Shiny for Python app that converts source material into structured Markd
 
 - Searchable PDF books. OCR-only PDFs are rejected with a clear message.
 - EPUB books.
-- UTF-8 text files containing YouTube video links.
+- UTF-8 text files containing YouTube video or channel links.
 
 ## Output
 
@@ -68,7 +68,10 @@ The first setup can take several minutes. Later launches skip installation unles
 ## Process source material
 
 1. Under **Upload sources**, select one or more `.epub`, searchable `.pdf`, or `.txt` files.
-2. For YouTube, place one video link per line in a UTF-8 text file. Lines beginning with `#` are ignored.
+2. For YouTube, place one video or channel link per line in a UTF-8 text file. A channel URL
+   (`youtube.com/@handle`, `/channel/...`, `/c/...`, or `/user/...`) discovers and processes every
+   public video exposed by that channel, including videos listed through its channel tabs. Duplicate
+   videos are processed only once per link file. Lines beginning with `#` are ignored.
 3. Under **Specify output**, enter the destination folder. The default is `processed_library` inside the app folder.
 4. Keep the default 1,200-word chunks and 120-word overlap unless a different retrieval system requires other limits.
 5. For YouTube, leave the timestamp interval at 60 seconds for a useful balance between readability and precise review links.
@@ -78,6 +81,11 @@ The first setup can take several minutes. Later launches skip installation unles
 A processing indicator remains visible while a run is active. The build button is temporarily disabled to prevent duplicate runs.
 
 The first Whisper fallback downloads the selected speech-to-text model and therefore takes longer. Captioned videos do not need this model.
+
+Channel imports can take a long time because every discovered video is processed sequentially. Private,
+members-only, deleted, and otherwise unavailable videos cannot be imported. The app stores the generated
+Markdown and provenance, not permanent copies of the original video files; audio is downloaded temporarily
+only when local Whisper transcription is required.
 
 ## Stop and restart
 

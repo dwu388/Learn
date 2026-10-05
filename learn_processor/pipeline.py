@@ -16,7 +16,7 @@ from .common import (
     unique_destination,
     write_chunks,
 )
-from .youtube import extract_video, parse_youtube_links, transcript_chunks
+from .youtube import expand_youtube_sources, extract_video, parse_youtube_links, transcript_chunks
 
 
 @dataclass(frozen=True)
@@ -202,7 +202,7 @@ def process_files(
                 results.append(_process_book(path, original_name, options))
             elif suffix == ".txt":
                 text = path.read_text(encoding="utf-8-sig")
-                links = parse_youtube_links(text)
+                links = expand_youtube_sources(parse_youtube_links(text))
                 for url in links:
                     try:
                         results.append(_process_video(url, options))

@@ -18,6 +18,8 @@ from .common import MarkdownChunk, word_count
 YOUTUBE_URL_RE = re.compile(
     r"https?://(?:www\.|m\.)?(?:youtube\.com|youtu\.be)/[^\s<>\]\[\"']+", re.I
 )
+VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}")
+CHANNEL_PATH_PREFIXES = {"channel", "c", "user"}
 
 
 @dataclass(frozen=True)
@@ -111,9 +113,38 @@ def extract_youtube_id(url: str) -> str:
             )
     else:
         candidate = ""
-    if not re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate):
+    if not VIDEO_ID_RE.fullmatch(candidate):
         raise ValueError(f"Not a supported YouTube video URL: {url}")
     return candidate
+
+
+def _channel_url(url: str) -> str | None:
+    """Return a canonical channel root URL, or None when *url* is not a channel URL."""
+    parsed = urlparse(url.strip())
+    host = parsed.netloc.lower().split(":", 1)[0]
+    if not host.endswith("youtube.com"):
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if not parts:
+        return None
+    if parts[0].startswith("@") and len(parts[0]) > 1:
+        channel_parts = parts[:1]
+    elif len(parts) >= 2 and parts[0].lower() in CHANNEL_PATH_PREFIXES:
+        channel_parts = parts[:2]
+    else:
+        return None
+    return f"https://www.youtube.com/{'/'.join(channel_parts)}"
+
+
+def _canonical_source_url(url: str) -> str:
+    try:
+        video_id = extract_youtube_id(url)
+    except ValueError:
+        channel = _channel_url(url)
+        if channel:
+            return channel
+        raise ValueError(f"Not a supported YouTube video or channel URL: {url}") from None
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def parse_youtube_links(text: str) -> list[str]:
@@ -125,14 +156,91 @@ def parse_youtube_links(text: str) -> list[str]:
             continue
         for match in YOUTUBE_URL_RE.findall(line):
             cleaned = match.rstrip(".,);}")
-            video_id = extract_youtube_id(cleaned)
-            canonical = f"https://www.youtube.com/watch?v={video_id}"
+            canonical = _canonical_source_url(cleaned)
             if canonical not in seen:
                 seen.add(canonical)
                 links.append(canonical)
     if not links:
-        raise ValueError("The TXT file does not contain any valid YouTube video links.")
+        raise ValueError("The TXT file does not contain any valid YouTube video or channel links.")
     return links
+
+
+def _video_ids_from_info(info: object) -> list[str]:
+    """Flatten video IDs from yt-dlp channel results while ignoring playlist containers."""
+    found: list[str] = []
+
+    def visit(item: object) -> None:
+        if not isinstance(item, dict):
+            return
+        entries = item.get("entries")
+        if entries is not None:
+            for entry in entries:
+                visit(entry)
+            return
+
+        for key in ("webpage_url", "url"):
+            value = item.get(key)
+            if not isinstance(value, str):
+                continue
+            try:
+                found.append(extract_youtube_id(value))
+                return
+            except ValueError:
+                pass
+        candidate = str(item.get("id") or "")
+        if VIDEO_ID_RE.fullmatch(candidate):
+            found.append(candidate)
+
+    visit(info)
+    return found
+
+
+def discover_channel_videos(
+    channel_url: str, runtime: tuple[str, str] | None = None
+) -> list[str]:
+    """Discover every public video exposed by a YouTube channel, including tab results."""
+    canonical_channel = _channel_url(channel_url)
+    if not canonical_channel:
+        raise ValueError(f"Not a supported YouTube channel URL: {channel_url}")
+    options = _ydl_options(
+        runtime,
+        noplaylist=False,
+        extract_flat="in_playlist",
+        lazy_playlist=False,
+        ignoreerrors=True,
+        skip_download=True,
+    )
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(canonical_channel, download=False)
+    except Exception as exc:
+        raise RuntimeError(f"Could not inspect YouTube channel {canonical_channel}: {exc}") from exc
+
+    videos: list[str] = []
+    seen: set[str] = set()
+    for video_id in _video_ids_from_info(info):
+        if video_id not in seen:
+            seen.add(video_id)
+            videos.append(f"https://www.youtube.com/watch?v={video_id}")
+    if not videos:
+        raise ValueError(f"No public videos were found for YouTube channel {canonical_channel}.")
+    return videos
+
+
+def expand_youtube_sources(sources: list[str]) -> list[str]:
+    """Expand video and channel inputs into a stable, de-duplicated list of video URLs."""
+    runtime = detect_javascript_runtime()
+    videos: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        channel = _channel_url(source)
+        expanded = discover_channel_videos(channel, runtime) if channel else [source]
+        for video_url in expanded:
+            canonical = _canonical_source_url(video_url)
+            if canonical not in seen:
+                seen.add(canonical)
+                videos.append(canonical)
+    return videos
 
 
 def _metadata(url: str, video_id: str, runtime: tuple[str, str] | None) -> dict[str, object]:
