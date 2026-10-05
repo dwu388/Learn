@@ -7,6 +7,8 @@ from learn_processor.youtube import (
     VideoExtraction,
     _ydl_options,
     detect_javascript_runtime,
+    discover_channel_videos,
+    expand_youtube_sources,
     extract_video,
     extract_youtube_id,
     parse_youtube_links,
@@ -37,6 +39,65 @@ def test_parse_youtube_links_deduplicates_and_ignores_comments():
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         "https://www.youtube.com/watch?v=9bZkp7q19f0",
     ]
+
+
+def test_parse_youtube_links_accepts_and_normalizes_channel_tabs():
+    text = """
+    https://www.youtube.com/@example/videos
+    https://youtube.com/channel/UC1234567890/shorts?view=0
+    https://youtube.com/@example
+    """
+    assert parse_youtube_links(text) == [
+        "https://www.youtube.com/@example",
+        "https://www.youtube.com/channel/UC1234567890",
+    ]
+
+
+def test_discover_channel_videos_flattens_tabs_and_deduplicates():
+    info = {
+        "entries": [
+            {
+                "_type": "playlist",
+                "entries": [
+                    {"id": "dQw4w9WgXcQ", "url": "https://youtu.be/dQw4w9WgXcQ"},
+                    {"id": "9bZkp7q19f0"},
+                ],
+            },
+            {"id": "dQw4w9WgXcQ"},
+            None,
+        ]
+    }
+    ydl = Mock()
+    ydl.__enter__ = Mock(return_value=ydl)
+    ydl.__exit__ = Mock(return_value=False)
+    ydl.extract_info.return_value = info
+    with patch("learn_processor.youtube.YoutubeDL", return_value=ydl) as youtube_dl:
+        result = discover_channel_videos("https://youtube.com/@example/videos")
+
+    assert result == [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=9bZkp7q19f0",
+    ]
+    options = youtube_dl.call_args.args[0]
+    assert options["noplaylist"] is False
+    assert options["extract_flat"] == "in_playlist"
+    ydl.extract_info.assert_called_once_with("https://www.youtube.com/@example", download=False)
+
+
+def test_expand_youtube_sources_deduplicates_channel_and_direct_video():
+    direct = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    channel = "https://www.youtube.com/@example"
+    with (
+        patch("learn_processor.youtube.detect_javascript_runtime", return_value=("deno", "deno")),
+        patch(
+            "learn_processor.youtube.discover_channel_videos",
+            return_value=[direct, "https://www.youtube.com/watch?v=9bZkp7q19f0"],
+        ) as discover,
+    ):
+        result = expand_youtube_sources([channel, direct])
+
+    assert result == [direct, "https://www.youtube.com/watch?v=9bZkp7q19f0"]
+    discover.assert_called_once_with(channel, ("deno", "deno"))
 
 
 def test_transcript_chunks_include_clickable_timestamps():

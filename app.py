@@ -70,8 +70,9 @@ app_ui = ui.page_fluid(
                     multiple=True,
                 ),
                 ui.p(
-                    "Text files may contain one or more youtube.com or youtu.be links. "
-                    "Blank lines and lines beginning with # are ignored.",
+                    "Text files may contain YouTube video or channel links. Channel links discover "
+                    "and process every public video. Blank lines and lines beginning with # are "
+                    "ignored.",
                     class_="muted",
                 ),
                 ui.p(javascript_runtime_status(), class_="small muted"),
@@ -83,7 +84,8 @@ app_ui = ui.page_fluid(
                         "PDF: searchable text, table of contents, and page references are retained."
                     ),
                     ui.tags.li(
-                        "YouTube: captions or local speech-to-text with links back to exact times."
+                        "YouTube: individual videos or full channels, using captions or local "
+                        "speech-to-text with links back to exact times."
                     ),
                 ),
                 class_="control-card",
