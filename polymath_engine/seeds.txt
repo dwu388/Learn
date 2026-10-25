@@ -1,0 +1,13 @@
+# Small cross-disciplinary pilot. Titles depend on the installed ZIM version.
+Homeostasis
+Control theory
+Feedback
+Ecological niche
+Resource partitioning
+Load balancing (computing)
+Queueing theory
+Natural selection
+Evolutionary algorithm
+Network effect
+Diffusion of innovations
+Epidemiology
