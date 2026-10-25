@@ -1,0 +1,2 @@
+# Install after requirements.txt for direct access to an existing Wikipedia ZIM.
+libzim>=3.0,<5
