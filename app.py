@@ -55,7 +55,7 @@ app_ui = ui.page_fluid(
         ui.div(
             ui.h1("Learn Library Builder"),
             ui.p(
-                "Turn searchable books and YouTube speech into structured, timestamped Markdown.",
+                "Turn books, YouTube speech, and local MP4s into structured Markdown.",
                 class_="lead muted",
             ),
             class_="hero",
@@ -65,8 +65,8 @@ app_ui = ui.page_fluid(
                 ui.card_header("1. Upload sources"),
                 ui.input_file(
                     "uploads",
-                    "Choose EPUB, searchable PDF, or YouTube link list",
-                    accept=[".epub", ".pdf", ".txt"],
+                    "Choose EPUB, searchable PDF, MP4, or YouTube link list",
+                    accept=[".epub", ".pdf", ".mp4", ".txt"],
                     multiple=True,
                 ),
                 ui.p(
@@ -87,6 +87,7 @@ app_ui = ui.page_fluid(
                         "YouTube: individual videos or full channels, using captions or local "
                         "speech-to-text with links back to exact times."
                     ),
+                    ui.tags.li("MP4: local Whisper transcription with timestamped text."),
                 ),
                 class_="control-card",
             ),
@@ -106,7 +107,7 @@ app_ui = ui.page_fluid(
                 ),
                 ui.input_numeric(
                     "timestamp_interval",
-                    "YouTube timestamp interval (seconds)",
+                    "Transcript timestamp interval (seconds)",
                     60,
                     min=15,
                     max=600,
@@ -114,7 +115,8 @@ app_ui = ui.page_fluid(
                 ui.input_text("languages", "Caption language priority", value="en,en-US,en-GB"),
                 ui.input_checkbox(
                     "whisper_fallback",
-                    "Use local Whisper when YouTube captions are unavailable",
+                    "Use local Whisper when YouTube captions are unavailable "
+                    "(MP4 always uses Whisper)",
                     True,
                 ),
                 ui.layout_columns(
@@ -183,7 +185,7 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     def _run_processing() -> None:
         uploads = input.uploads()
         if not uploads:
-            status_value.set("No files selected. Upload at least one EPUB, PDF, or TXT file.")
+            status_value.set("No files selected. Upload at least one EPUB, PDF, MP4, or TXT file.")
             result_value.set([])
             return
 

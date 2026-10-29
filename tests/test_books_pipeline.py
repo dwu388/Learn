@@ -5,6 +5,7 @@ from ebooklib import epub
 
 from learn_processor.books import extract_epub, extract_pdf
 from learn_processor.pipeline import ProcessingOptions, ProcessingResult, process_files
+from learn_processor.youtube import TranscriptSegment
 
 
 def make_searchable_pdf(path):
@@ -87,6 +88,37 @@ def test_pipeline_does_not_archive_youtube_link_list(tmp_path, monkeypatch):
 
     assert results[0].success
     assert not (output / "_inputs").exists()
+
+
+def test_pipeline_transcribes_mp4_and_preserves_local_provenance(tmp_path, monkeypatch):
+    source = tmp_path / "shiny-upload"
+    source.write_bytes(b"sample mp4 content")
+    output = tmp_path / "output"
+    calls = []
+
+    def transcribe(path, model, device):
+        calls.append((path, model, device))
+        return [TranscriptSegment(65, 4, "spoken sample")]
+
+    monkeypatch.setattr("learn_processor.pipeline.transcribe_local_file", transcribe)
+    options = ProcessingOptions(
+        output_dir=output, whisper_model="base", whisper_device="cpu", whisper_fallback=False
+    )
+    results = process_files([(source, "My Clip.MP4")], options)
+
+    assert calls == [(source, "base", "cpu")]
+    assert len(results) == 1 and results[0].success
+    destination = results[0].output_path
+    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["source_type"] == "mp4"
+    assert manifest["source_file"] == "My Clip.MP4"
+    assert manifest["source_sha256"]
+    assert manifest["transcript_source"] == "faster_whisper:base"
+    chunk = (destination / "chunks" / "chunk-001.md").read_text(encoding="utf-8")
+    assert "**01:05**" in chunk and "spoken sample" in chunk
+    assert "youtube.com" not in chunk
+    assert not list(destination.rglob("*.mp4"))
+    assert "My Clip" in (output / "catalog.md").read_text(encoding="utf-8")
 
 
 def test_pipeline_expands_channel_before_processing_videos(tmp_path, monkeypatch):
