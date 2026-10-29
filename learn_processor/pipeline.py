@@ -16,7 +16,14 @@ from .common import (
     unique_destination,
     write_chunks,
 )
-from .youtube import expand_youtube_sources, extract_video, parse_youtube_links, transcript_chunks
+from .youtube import (
+    VideoExtraction,
+    expand_youtube_sources,
+    extract_video,
+    parse_youtube_links,
+    transcribe_local_file,
+    transcript_chunks,
+)
 
 
 @dataclass(frozen=True)
@@ -135,6 +142,47 @@ def _process_video(url: str, options: ProcessingOptions) -> ProcessingResult:
         raise
 
 
+def _process_mp4(path: Path, original_name: str, options: ProcessingOptions) -> ProcessingResult:
+    title = Path(original_name).stem
+    segments = transcribe_local_file(path, options.whisper_model, options.whisper_device)
+    video = VideoExtraction(
+        video_id="",
+        url="",
+        title=title,
+        channel=None,
+        duration=None,
+        transcript_source=f"faster_whisper:{options.whisper_model}",
+        javascript_runtime=None,
+        segments=tuple(segments),
+    )
+    chunks = transcript_chunks(
+        video, options.chunk_words, options.overlap_words, options.timestamp_interval
+    )
+    destination = unique_destination(options.output_dir, title)
+    staging = Path(tempfile.mkdtemp(prefix=".learn-mp4-", dir=options.output_dir))
+    try:
+        metadata: dict[str, object] = {
+            "schema_version": 1,
+            "source_type": "mp4",
+            "source_file": original_name,
+            "source_sha256": sha256_file(path),
+            "title": title,
+            "transcript_source": video.transcript_source,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+            "chunk_target_words": options.chunk_words,
+            "chunk_overlap_words": options.overlap_words,
+            "timestamp_interval_seconds": options.timestamp_interval,
+        }
+        chunk_count, total_words, records = write_chunks(staging, chunks, metadata)
+        _write_index(staging, metadata, records)
+        return ProcessingResult(
+            title, True, _finalize(staging, destination), chunk_count, total_words
+        )
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 def _write_catalog(output_dir: Path) -> None:
     entries: list[dict[str, object]] = []
     for directory in output_dir.iterdir():
@@ -200,6 +248,8 @@ def process_files(
         try:
             if suffix in {".pdf", ".epub"}:
                 results.append(_process_book(path, original_name, options))
+            elif suffix == ".mp4":
+                results.append(_process_mp4(path, original_name, options))
             elif suffix == ".txt":
                 text = path.read_text(encoding="utf-8-sig")
                 links = expand_youtube_sources(parse_youtube_links(text))

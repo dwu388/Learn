@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -12,6 +14,7 @@ from learn_processor.youtube import (
     extract_video,
     extract_youtube_id,
     parse_youtube_links,
+    transcribe_local_file,
     transcript_chunks,
 )
 
@@ -169,3 +172,18 @@ def test_whisper_fallback_receives_selected_device():
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "small", "cpu", None
     )
     assert result.transcript_source == "faster_whisper:small"
+
+
+def test_local_transcription_uses_youtube_whisper_settings():
+    model = Mock()
+    model.transcribe.return_value = (
+        [Mock(start=2.0, end=4.5, text="  spoken words  ")],
+        Mock(),
+    )
+    module = Mock(WhisperModel=Mock(return_value=model))
+    with patch.dict(sys.modules, {"faster_whisper": module}):
+        segments = transcribe_local_file(Path("clip.mp4"), "small", "cpu")
+
+    module.WhisperModel.assert_called_once_with("small", device="cpu", compute_type="int8")
+    model.transcribe.assert_called_once_with("clip.mp4", vad_filter=True, beam_size=5)
+    assert segments == [TranscriptSegment(2.0, 2.5, "spoken words")]

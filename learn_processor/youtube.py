@@ -284,11 +284,6 @@ def _whisper_segments(
     device: str,
     runtime: tuple[str, str] | None,
 ) -> list[TranscriptSegment]:
-    try:
-        from faster_whisper import WhisperModel
-    except ImportError as exc:
-        raise RuntimeError("Local transcription requires the faster-whisper package.") from exc
-
     with tempfile.TemporaryDirectory(prefix="learn-audio-") as temp_name:
         template = str(Path(temp_name) / "audio.%(ext)s")
         options = _ydl_options(runtime, format="bestaudio/best", outtmpl=template)
@@ -303,14 +298,27 @@ def _whisper_segments(
         candidates = [path for path in Path(temp_name).glob("audio.*") if path.is_file()]
         if not candidates:
             raise RuntimeError("YouTube audio could not be downloaded for local transcription.")
-        compute_type = "int8" if device == "cpu" else "float16"
-        model = WhisperModel(model_name, device=device, compute_type=compute_type)
-        generated, _info = model.transcribe(str(candidates[0]), vad_filter=True, beam_size=5)
-        segments = [
-            TranscriptSegment(float(item.start), float(item.end - item.start), item.text.strip())
-            for item in generated
-            if item.text.strip()
-        ]
+        segments = transcribe_local_file(candidates[0], model_name, device)
+    return segments
+
+
+def transcribe_local_file(
+    path: Path, model_name: str, device: str
+) -> list[TranscriptSegment]:
+    """Transcribe a local media file using the same settings as YouTube fallback."""
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as exc:
+        raise RuntimeError("Local transcription requires the faster-whisper package.") from exc
+
+    compute_type = "int8" if device == "cpu" else "float16"
+    model = WhisperModel(model_name, device=device, compute_type=compute_type)
+    generated, _info = model.transcribe(str(path), vad_filter=True, beam_size=5)
+    segments = [
+        TranscriptSegment(float(item.start), float(item.end - item.start), item.text.strip())
+        for item in generated
+        if item.text.strip()
+    ]
     if not segments:
         raise ValueError("Local transcription produced no spoken content.")
     return segments
@@ -395,9 +403,13 @@ def transcript_chunks(
         selected = units[start:end]
         body_parts = []
         for timestamp, spoken_text in selected:
-            second = int(timestamp)
-            linked_url = f"https://www.youtube.com/watch?v={video.video_id}&t={second}s"
-            body_parts.append(f"**[{format_time(timestamp)}]({linked_url})**  \n{spoken_text}")
+            if video.video_id:
+                second = int(timestamp)
+                linked_url = f"https://www.youtube.com/watch?v={video.video_id}&t={second}s"
+                marker = f"[{format_time(timestamp)}]({linked_url})"
+            else:
+                marker = format_time(timestamp)
+            body_parts.append(f"**{marker}**  \n{spoken_text}")
         number = len(chunks) + 1
         chunks.append(
             MarkdownChunk(
